@@ -125,6 +125,7 @@ export function runArPage(engine) {
     panel.setSiblings(slot.stage.slots.filter((s) => s.model).map((s) => s.item), slot.item);
     panel.setLayers(slot.annotations.layers);
     $('panel').hidden = false;
+    $('btn-reset').hidden = !movable(slot);
     if (pendingNote) {
       const entry = findEntry(slot.annotations, pendingNote);
       if (entry) { pendingNote = null; slot.annotations.select(entry); panel.showSelection(entry); }
@@ -169,6 +170,10 @@ export function runArPage(engine) {
 
   /* ---------- 指の操作 ---------- */
 
+  // 指で回したり大きさを変えたりしてよい資料か。図面に重ねる資料（plan）は、図面と同じ位置・縮尺・向きで
+  // 見せるのが目的なので動かさない（位置合わせを見る人に任せる作りにはしない）
+  function movable(slot) { return !!(slot && slot.model && slot.mode !== 'plan'); }
+
   function setupGestures(el) {
     const pointers = new Map();
     let pinch = null;
@@ -181,10 +186,10 @@ export function runArPage(engine) {
 
     el.addEventListener('pointerdown', (e) => {
       el.setPointerCapture(e.pointerId);
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, dragging: false });
       tap = pointers.size === 1 ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
       const cur = core.current;
-      pinch = pointers.size === 2 && cur && cur.model ? { dist: spread(), scale: cur.user.scale.x } : null;
+      pinch = pointers.size === 2 && movable(cur) ? { dist: spread(), scale: cur.user.scale.x } : null;
     });
 
     el.addEventListener('pointermove', (e) => {
@@ -193,9 +198,10 @@ export function runArPage(engine) {
       const dx = e.clientX - p.x;
       p.x = e.clientX; p.y = e.clientY;
       const cur = core.current;
-      if (!cur || !cur.model) return;
+      if (!movable(cur)) return;   // 図面に重ねる資料は、指では動かさない
       if (pointers.size === 1) {
-        // 横になぞると、モデルの軸まわりに回る
+        // 横にはっきりなぞったとき（12画素以上）だけ、モデルの軸まわりに回る。たたいたときの指のぶれでは回さない
+        if (!p.dragging) { if (Math.abs(e.clientX - p.sx) < 12) return; p.dragging = true; }
         const axis = cur.mode === 'lay' ? 'y' : 'z';
         cur.user.rotation[axis] += dx * 0.01;
       } else if (pinch) {

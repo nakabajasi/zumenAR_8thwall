@@ -21,6 +21,9 @@ export const AR8_DEFAULTS = {
   moveTol: 0.03,    // これ以上違う位置（図面の長辺に対する割合）を「図面が動いた」とみなす
   moveTolDeg: 4,    // これ以上違う向き（度）を「図面が動いた」とみなす
   moveSec: 0.3,     // 「動いた」が続いたら新しい位置へ移すまでの時間（秒。一瞬の測り違いでは動かさない）
+  nearIgnore: 0.6,  // カメラから図面までの距離が図面の長辺のこれ倍より近いときは、測り直しを取り込まない
+  nearTrust: 1.0,   // 　〃　これ倍より遠い（図面全体が写る）ときは、そのまま取り込む。あいだは近いほど弱める
+                    // （近いと図面の一部しか写らず、8th Wall が測る図面の向きが不正確になる。位置は部屋の追跡で保つ）
   pixelRatio: 2,    // 描画の細かさ（画面の画素比の上限）
   turn: 0,          // 図面の向きの補正（度。0・90・180・270）。?debug=1 で出る赤い枠が紙の縁と合わないときだけ使う
   frame: 0,         // 1＝図面の縁を赤い枠で示す（?debug=1 のときは常に出す）
@@ -112,7 +115,7 @@ function makeAnchor(data) {
     p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1,
     inner, aspect: z.srcHeight / z.srcWidth,
     lastAt: 0, bigSince: 0,
-    updates: 0, snaps: 0, skipped: 0, lastDiff: 0, lastDeg: 0, rate: 0, rateCount: 0, rateAt: 0,
+    updates: 0, snaps: 0, skipped: 0, near: 0, ratio: 0, weight: 1, lastDiff: 0, lastDeg: 0, rate: 0, rateCount: 0, rateAt: 0,
   };
 }
 
@@ -125,8 +128,15 @@ function measure(st, detail, fresh) {
   const s = detail.scale;
   a.updates += 1; a.rateCount += 1;
   if (now - a.rateAt > 1000) { a.rate = (a.rateCount * 1000) / (now - a.rateAt || 1); a.rateCount = 0; a.rateAt = now; }
+  // どれだけ信用して取り込むか：カメラから図面までの距離 ÷ 図面の長辺 で決める。
+  // 図面全体が写るくらい離れていればそのまま、近づいて一部しか写らないときは取り込まない
+  a.ratio = xr ? xr.camera.position.distanceTo(_p) / Math.max(s, 1e-6) : 99;
+  const span = Math.max(settings.nearTrust - settings.nearIgnore, 1e-6);
+  const w = Math.min(Math.max((a.ratio - settings.nearIgnore) / span, 0), 1);
+  a.weight = w;
   // 見失っていた時間が長いと、部屋の追跡のずれがたまっているかもしれないので、見つけ直したら新しい位置をそのまま使う
-  const longGone = fresh && now - a.lastAt > 1500;
+  // （ただし近すぎて当てにならないときは、いまの位置を保つ）
+  const longGone = fresh && now - a.lastAt > 1500 && w >= 0.5;
   if (!a.has || longGone) {
     if (a.has) a.snaps += 1;
     a.p.copy(_p); a.q.copy(_q); a.s = s;
@@ -137,17 +147,18 @@ function measure(st, detail, fresh) {
   a.lastAt = now;
   a.lastDiff = _p.distanceTo(a.p) / Math.max(a.s, 1e-6);
   a.lastDeg = THREE.MathUtils.radToDeg(_q.angleTo(a.q));
+  if (w <= 0) { a.near += 1; a.bigSince = 0; return; }   // 近すぎる：取り込まない
   if (a.lastDiff > settings.moveTol || a.lastDeg > settings.moveTolDeg) {
-    // はっきり違う位置：続くときだけ移す（一瞬の測り違いは無視する）
+    // はっきり違う位置：続くときだけ移す（一瞬の測り違いは無視する）。近めのときは移さない
     if (!a.bigSince) a.bigSince = now;
-    if (now - a.bigSince >= settings.moveSec * 1000) {
+    if (w >= 0.5 && now - a.bigSince >= settings.moveSec * 1000) {
       a.p.copy(_p); a.q.copy(_q); a.s = s; a.bigSince = 0; a.snaps += 1;
     } else a.skipped += 1;
     return;
   }
   a.bigSince = 0;
   // 同じ所を測り直している：ゆっくり平均して取り込む
-  const k = 1 - Math.exp(-dt / Math.max(settings.settleSec, 0.01));
+  const k = w * (1 - Math.exp(-dt / Math.max(settings.settleSec, 0.01)));
   a.p.lerp(_p, k); a.q.slerp(_q, k); a.s += (s - a.s) * k;
 }
 
@@ -368,6 +379,7 @@ function updateDebug() {
     `部屋の追跡 ${status.status || '-'} ${status.reason || ''}`,
     a ? `図面 ${a.seen ? '写っている' : a.has ? '外れている（位置は保持）' : '未発見'}  測り直し ${a.rate.toFixed(0)}回/秒` : '図面 -',
     a ? `直近の差 ${(a.lastDiff * 100).toFixed(2)}%  ${a.lastDeg.toFixed(2)}°  移した ${a.snaps}  無視 ${a.skipped}` : '',
+    a ? `距離÷長辺 ${a.ratio.toFixed(2)}  取り込み ${Math.round(a.weight * 100)}%  近すぎて捨てた ${a.near}` : '',
     `画素 ${canvas ? `${canvas.width}×${canvas.height}` : '-'}`,
     `経過 ${events.slice(-4).join(' / ')}`,
   ].join('\n');
