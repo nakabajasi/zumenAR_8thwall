@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>注記一覧｜AR</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="notes-page">
+<main class="page page-wide">
+  <header class="page-head">
+    <h1>注記一覧</h1>
+    <p id="lead">資料ごとの資料情報と、3Dモデルに付けた注記（アノテーション）の一覧です。</p>
+  </header>
+  <p class="no-print"><button class="btn btn-primary" id="btn-csv" type="button">CSVで保存</button> <button class="btn" id="btn-print" type="button">印刷</button> <a class="btn" id="link-all" href="notes.html" hidden>すべての資料</a></p>
+  <div id="list"><p class="muted">読み込み中…</p></div>
+  <footer class="foot" id="foot"></footer>
+</main>
+<script type="module" src="js/notes.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>AR表示（MindAR）｜AR</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.min.js", "three/addons/": "./lib/three-addons/" } }
+</script>
+</head>
+<body class="stage-page">
+<div id="stage"></div>
+
+<div class="topbar" id="topbar" hidden>
+  <a class="pill" href="index.html">← 一覧</a>
+  <div class="group">
+    <button class="pill" id="btn-see" type="button" aria-pressed="false">透かす</button>
+    <button class="pill" id="btn-mode" type="button" aria-pressed="false">形だけ</button>
+    <button class="pill" id="btn-reset" type="button">元に戻す</button>
+  </div>
+</div>
+<p class="hint" id="hint" hidden></p>
+<p class="config-warn" id="config-warn" hidden></p>
+<div class="recover" id="recover" hidden><button class="pill" id="btn-rescan" type="button">探し直す</button></div>
+<div id="panel" hidden></div>
+
+<div class="gate" id="gate">
+  <div class="gate-inner">
+    <h1>図面にかざす（MindAR 版）</h1>
+    <p>カメラを使います。映像はこの端末の中だけで処理し、送信も保存もしません。</p>
+    <div class="callout" id="inapp" hidden>このアプリ内の画面ではカメラが動かないことがあります。メニューから「Safariで開く」または「ブラウザで開く」を選んでください。</div>
+    <button class="btn btn-primary" id="btn-start" type="button">カメラを起動</button>
+    <a class="btn" id="link-viewer" href="viewer.html">カメラなしで3Dを見る</a>
+    <p class="error" id="gate-error" hidden></p>
+  </div>
+</div>
+
+<script type="module" src="js/ar.js"></script>
+</body>
+</html>

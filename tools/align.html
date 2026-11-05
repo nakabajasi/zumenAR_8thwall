@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>位置合わせ｜AR</title>
+<link rel="stylesheet" href="../css/style.css">
+<script type="importmap">
+{ "imports": { "three": "../lib/three.module.min.js", "three/addons/": "../lib/three-addons/" } }
+</script>
+</head>
+<body class="align-page">
+<header class="align-head">
+  <a href="./">← 管理用</a>
+  <h1>位置合わせ</h1>
+  <select id="item-select" aria-label="資料"></select>
+</header>
+<div class="align-body">
+  <div class="align-view" id="view" tabindex="0" aria-label="図面とモデル。モデルをドラッグで移動、それ以外をドラッグで図面を動かす、ホイールで拡大縮小"></div>
+  <aside class="align-side">
+    <p class="muted" id="status">読み込み中…</p>
+
+    <h2>置き方</h2>
+    <select id="mode">
+      <option value="plan">平面図に重ねる（遺構）</option>
+      <option value="stand">紙の上に立たせる</option>
+      <option value="lay">正面図に重ねて寝かせる（遺物）</option>
+    </select>
+
+    <h2>モデルの上の向き</h2>
+    <select id="up-axis">
+      <option value="0,0,0">+Y が上（glTF の標準）</option>
+      <option value="-90,0,0">+Z が上（Z を上のまま書き出したモデル）</option>
+      <option value="custom" hidden>台帳の値のまま</option>
+    </select>
+    <p class="muted small" id="up-note">Blender の書き出しで「+Y上」を外したモデルは「+Z が上」です。</p>
+
+    <h2>位置（図面画像の画素）</h2>
+    <div class="row"><label>横 <input id="at-x" type="number" step="0.5"></label><label>縦 <input id="at-y" type="number" step="0.5"></label></div>
+    <p class="muted small">モデルをドラッグして動かせます。矢印キーで1画素、Shift＋矢印で10画素。</p>
+
+    <div data-for="plan stand">
+      <h2>方位（モデルの北を、図面の上から時計回りに）</h2>
+      <div class="row"><input id="heading-range" type="range" min="-180" max="180" step="0.5"><input id="heading" type="number" step="0.5" class="narrow"> °</div>
+      <p class="muted small">［ と ］キーで0.5°ずつ回せます。</p>
+    </div>
+
+    <div data-for="plan">
+      <h2>図面画像の実寸</h2>
+      <div class="row"><label>横 <input id="real-w" type="number" step="0.0001" min="0" class="narrow"> m</label><label>縦 <input id="real-h" type="number" step="0.0001" min="0" class="narrow"> m</label></div>
+      <p class="muted small" id="ppm-note"></p>
+      <div class="row"><label>縮尺バーの長さ <input id="bar-m" type="number" step="0.1" min="0" value="1" class="narrow"> m</label><button class="btn small-btn" id="btn-measure" type="button">縮尺バーで測る</button></div>
+      <p class="muted small" id="measure-help">実寸がわからないときは、縮尺バーの長さを入れてから押し、図面上で縮尺バーの両端をクリックすると実寸が入ります。実寸は同じ図面のすべての資料で共通です。</p>
+      <p class="muted small" id="coord-note" hidden>モデルの座標のまま重ねています（図面画像の左下が原点、右が X、上が Y の m 単位）。動かすと、ここで決めた位置で保存します。</p>
+
+      <h2>紙の高さ（モデルのどの高さを紙の面に合わせるか）</h2>
+      <div class="row">
+        <select id="ground-kind"><option value="top">上端（検出面）</option><option value="bottom">下端</option><option value="value">下端から</option></select>
+        <span id="ground-value-wrap" hidden><input id="ground-value" type="number" step="0.01" min="0" class="narrow"> m</span>
+      </div>
+    </div>
+
+    <div data-for="stand lay">
+      <h2>大きさ（図面の幅に対するモデルの大きさ）</h2>
+      <div class="row"><input id="fit" type="number" step="0.01" min="0.01" class="narrow"> 倍</div>
+    </div>
+
+    <h2>表示</h2>
+    <div class="row"><label>モデルの濃さ <input id="opacity" type="range" min="0.1" max="1" step="0.05" value="0.7"></label></div>
+    <div class="row"><button class="btn small-btn" id="btn-fit" type="button">モデルに寄る</button><button class="btn small-btn" id="btn-all" type="button">図面全体</button></div>
+
+    <h2>結果</h2>
+    <p class="muted small" id="size-note"></p>
+    <textarea id="out" rows="7" readonly></textarea>
+    <div class="row"><button class="btn btn-primary small-btn" id="btn-save" type="button">items.json を保存</button><button class="btn small-btn" id="btn-copy" type="button">コピー</button></div>
+    <p class="muted small">保存したファイルで <span class="mono">data/items.json</span> を置き換えると、AR とビューアに反映されます。</p>
+  </aside>
+</div>
+<script type="module" src="align.js"></script>
+</body>
+</html>

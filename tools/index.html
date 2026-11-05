@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>管理用｜AR</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <h1>管理用</h1>
+    <p>図面を追加・差し替えたときに使います。処理はすべてこのブラウザの中で行います。</p>
+  </header>
+
+  <h2>0. ファイルの確認</h2>
+  <p>決まった名前のファイルがそろっているか、組み合わせが合っているかを確かめます。ファイルを差し替えたら、まずここを見てください。</p>
+  <div id="files"><p class="muted">確かめています…</p></div>
+
+  <h2>1. 認識用データを作る（MindAR 版）</h2>
+  <p>台帳（<span class="mono">data/items.json</span>）の <span class="mono">targets</span> に載っている図面の画像（<span class="mono">data/image.jpg</span>）をまとめて <span class="mono">all.mind</span> にします。できたファイルで <span class="mono">data/all.mind</span> を置き換えてください。図面の画像を足したり差し替えたりしたときだけ必要です（MindAR の公式ページで作った all.mind でも動きます）。</p>
+  <p><button class="btn btn-primary" id="btn-compile" type="button">作成する</button> <a class="btn" id="link-download" hidden>all.mind を保存</a></p>
+  <p class="muted" id="compile-status"></p>
+  <table class="plain" id="compile-table" hidden>
+    <thead><tr><th>番号</th><th>図面</th><th>画像</th><th>検出用</th><th>追跡用</th><th>判定</th><th>近づいたとき用（短辺:手がかり）</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <p class="muted">「検出用」は図面を見つけるとき、「追跡用」は見つけたあと追い続けるときの手がかりの数です。「近づいたとき用」は、図面の一部を大きく写したときに使う細かい見本です。追跡用は標準より間隔を詰めて選び直しています（カッコ内が標準の数）。判定は追跡用の数による目安で、最終判断は印刷した紙と実機で行ってください。</p>
+
+  <h2>1b. 8th Wall 用の認識データを作る</h2>
+  <p>「図面にかざす」（<span class="mono">ar.html</span>、8th Wall 版）が使うデータです。図面ごとに <span class="mono">target8.json</span> と <span class="mono">target8.jpg</span> を作ります。図面画像と同じフォルダ（図面が1枚なら <span class="mono">data/</span>）に置いてください。図面の画像を差し替えたら作り直します。</p>
+  <p>8th Wall は図面を縦横 4:3 の白黒画像（480×640 画素）として扱います。縦横比の違う図面は、切り落とさずに上下（または左右）に白地を足して 4:3 にします。下の画像が、8th Wall が実際に探す図面です（横長の図面は 90° 回して表示されます）。</p>
+  <p><button class="btn btn-primary" id="btn-compile8" type="button">作成する</button></p>
+  <p class="muted" id="compile8-status"></p>
+  <div id="compile8-links"></div>
+
+  <h2>2. 位置合わせ</h2>
+  <p>3Dモデルを、図面の上のどこに・どの向きで・どの縮尺で重ねるかを、図面を見ながら決めます。</p>
+  <table class="plain" id="align-table">
+    <thead><tr><th>図面</th><th>資料</th><th>置き方</th><th>位置（画素）</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>3. QRコードと展示用シート</h2>
+  <p>図面に添えるQRコードです。公開先のURLを入れてから印刷してください。印刷後はURLを変えられません。</p>
+  <p><label>公開先のURL <input id="base-url" type="url" style="width:100%;min-height:44px;padding:0 10px;font:inherit;border:1px solid var(--ink);border-radius:4px;background:#fff"></label></p>
+  <p><a class="btn btn-primary" id="link-sheet" href="sheet.html">展示用シートを開く</a></p>
+  <div class="qr-grid" id="qr-grid"></div>
+
+  <h2>4. 図形と遺構一覧表の照合</h2>
+  <p>Blender から書き出した図形のオブジェクト名と、遺構一覧表の遺構番号が対応しているかを確かめます。</p>
+  <p><a class="btn btn-primary" href="match.html">照合する</a></p>
+
+  <p class="foot"><a href="../index.html">← 一覧へ</a></p>
+</main>
+<script src="../lib/qrcode.js"></script>
+<script type="module" src="tools.js"></script>
+</body>
+</html>

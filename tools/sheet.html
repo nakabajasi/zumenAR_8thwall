@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>展示用シート｜AR</title>
+<link rel="stylesheet" href="../css/style.css">
+<style id="page-size">@page { size: A4 landscape; margin: 0; }</style>
+</head>
+<body class="sheet-page">
+<div class="sheet-toolbar no-print">
+  <a href="./">← 管理用</a>
+  <label>公開先のURL <input id="base-url" type="url"></label>
+  <label>用紙 <select id="paper"><option value="A4">A4 横</option><option value="A3">A3 横</option></select></label>
+  <button class="btn btn-primary small-btn" id="btn-print" type="button">印刷</button>
+  <p class="muted small">図面は台帳の画像をそのまま、縮小・切り取りなしで刷ります（図面の周りの文字やQRは認識に影響しません）。光沢のない紙を使ってください。</p>
+</div>
+<div id="sheets"></div>
+<script src="../lib/qrcode.js"></script>
+<script type="module" src="sheet.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>図形と表の照合｜AR</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<main class="page page-wide">
+  <header class="page-head">
+    <h1>図形と遺構一覧表の照合</h1>
+    <p>Blender から書き出した図形（<span class="mono">annotation.glb</span>）のオブジェクト名と、遺構一覧表（<span class="mono">annotation.csv</span>）の遺構番号が対応しているかを確かめます。表もファイルも書き換えません。</p>
+  </header>
+  <p class="muted">全角・半角、大文字・小文字、空白の違いは同じ番号とみなします。オブジェクト名の末尾の <span class="mono">.001</span> などは外して、同じ遺構の図形としてまとめます。</p>
+  <div id="list"><p class="muted">読み込み中…</p></div>
+  <p class="foot"><a href="./">← 管理用へ</a></p>
+</main>
+<script type="module" src="match.js"></script>
+</body>
+</html>

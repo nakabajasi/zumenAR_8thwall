@@ -1,0 +1,28 @@
+{
+  "site": {
+    "title": "AR — Archaeology Reference（試作）",
+    "lead": "紙の図面にスマホをかざすと、図面の元になった遺構の3Dモデルが重なって出ます。",
+    "edition": "2026-10-25",
+    "cite": "",
+    "notice": ""
+  },
+  "targets": [
+    {
+      "title": "第7図 23-2トレンチ平・断面図（報告書 P19）",
+      "realWidthM": 33.65,
+      "realHeightM": 23.7983
+    }
+  ],
+  "items": [
+    {
+      "title": "23-2トレンチ",
+      "model": {
+        "rotationDeg": [0, 0, 0]
+      },
+      "display": {
+        "mode": "plan",
+        "ground": "top"
+      }
+    }
+  ]
+}

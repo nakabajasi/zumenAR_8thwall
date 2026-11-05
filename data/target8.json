@@ -1,0 +1,29 @@
+{
+  "imagePath": "target8.jpg",
+  "metadata": {
+    "zumen": {
+      "srcWidth": 3969,
+      "srcHeight": 2807,
+      "padWidth": 3969,
+      "padHeight": 2977,
+      "padX": 0,
+      "padY": 85
+    }
+  },
+  "name": "zumen-1",
+  "type": "PLANAR",
+  "properties": {
+    "top": 0,
+    "left": 0,
+    "width": 2977,
+    "height": 3969,
+    "isRotated": true,
+    "originalWidth": 2977,
+    "originalHeight": 3969
+  },
+  "resources": {
+    "luminanceImage": "target8.jpg"
+  },
+  "created": 1793835304488,
+  "updated": 1793835304488
+}

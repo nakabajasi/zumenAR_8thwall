@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AR — Archaeology Reference</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<main class="page">
+  <header class="page-head">
+    <h1 id="site-title">AR — Archaeology Reference</h1>
+    <p id="site-lead"></p>
+  </header>
+
+  <div class="callout" id="inapp" hidden>このアプリ内の画面ではカメラが動かないことがあります。メニューから「Safariで開く」または「ブラウザで開く」を選んでください。</div>
+  <div class="callout" id="notice" hidden></div>
+
+  <h2>できること</h2>
+  <dl class="features">
+    <dt>紙図面と3Dモデルを同時に見る</dt>
+    <dd>図面にかざすと、図面の元になった遺構の3Dモデルが、図面と同じ位置・縮尺・方位で重なります。「透かす」で下の図面の線と見比べられます。</dd>
+    <dt>同じ資料を共同で参照する</dt>
+    <dd>資料や注記ごとのリンクを渡すと、図面を持っていない人も同じものを3Dで見られます。注記は一覧にして保存・印刷できます。</dd>
+    <dt>専用ソフトなしで見る</dt>
+    <dd>インストールは不要です。各自のスマートフォンのブラウザで動きます（iPhone は iOS 16.4 以降の Safari）。</dd>
+  </dl>
+
+  <h2>使い方</h2>
+  <ol class="steps">
+    <li>「図面にかざす」を押し、カメラと動きのセンサーの使用を許可する。</li>
+    <li>図面をカメラに映す。見つかると図面の上にモデルが出る。そのあとは図面から外れても、モデルはその場所に残る。</li>
+    <li>モデルをたたくと資料情報と注記が出る。横になぞって回す／2本指で拡大する。</li>
+  </ol>
+  <p class="actions-row"><a class="btn btn-primary" href="ar.html">図面にかざす</a> <a class="btn" href="viewer.html">3Dだけ見る</a> <a class="btn" href="notes.html">注記一覧</a></p>
+  <div id="warnings"></div>
+
+  <!-- 資料が2つ以上あるときだけ出す -->
+  <section id="items-section" hidden>
+    <h2>図面と資料</h2>
+    <div id="items"></div>
+  </section>
+
+  <footer class="foot">
+    <span id="edition"></span>
+    three.js・8th Wall Engine・MindAR・Draco を同梱しています（各ライセンスは <span class="mono">lib/</span> を参照）。8th Wall Engine は © 2026 Niantic Spatial, Inc.、<a href="lib/8thwall/LICENSE.txt">使用条件</a>のもとで無保証で提供されています。
+    <a href="ar-mindar.html">従来の方式（MindAR）で図面にかざす</a>。
+    <a href="tools/">管理用ページ</a>
+  </footer>
+</main>
+<script type="module" src="js/index.js"></script>
+</body>
+</html>

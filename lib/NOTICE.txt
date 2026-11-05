@@ -1,0 +1,6 @@
+このフォルダには次のライブラリを改変せずに同梱しています。
+
+three.js r160 (MIT)            three.module.min.js, three-addons/   → LICENSE-three.txt
+MindAR 1.2.5 (MIT)             mindar/                               → LICENSE-mindar.txt
+Draco decoder (Apache-2.0)     draco/     https://github.com/google/draco
+qrcode-generator 1.4.4 (MIT)   qrcode.js  ファイル冒頭に表示
