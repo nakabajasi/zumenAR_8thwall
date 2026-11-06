@@ -120,7 +120,7 @@ function updateDebug(now) {
   const v = mindar.video;
   const { active } = core;
   debugBox.textContent = [
-    `状態 ${t.state}${active && active.stabilizer.held ? '（固定表示）' : active && active.stabilizer.holding ? '（手ブレの遊びの中）' : ''}`,
+    `状態 ${t.state}${active && active.stabilizer.held ? '（固定表示）' : active && !active.stabilizer.ready ? '（モデルを消している）' : active && active.stabilizer.holding ? '（手ブレの遊びの中）' : ''}`,
     `認識 ${t.fps.toFixed(1)}回/秒  描画 ${renderFps.toFixed(0)}回/秒`,
     `手がかり ${t.points}点（表示中の最少 ${Number.isFinite(t.minPointsSeen) ? t.minPointsSeen : '-'}）`,
     `見本 ${t.level || '-'}（持っている段 ${t.levels || '-'}）  やり直し ${t.retries}  粗→細 ${t.coarse}`,

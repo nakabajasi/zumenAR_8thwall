@@ -36,8 +36,9 @@ export function runArPage(engine) {
     preferred: null,     // QR や一覧で指定された資料
     seeThrough: false,
     shapeMode: false,
+    showNotes: false,    // 注記を出しているか（「注記」ボタン）。はじめは出さない
     running: false,
-    makeStage, makeSlot, ensureLoaded, select, onFound, onLost,
+    makeStage, makeSlot, ensureLoaded, select, onFound, onLost, setNotes,
   };
   let panel = null;
   let pendingNote = null;  // リンクで指定された注記（レイヤーの uid.番号）
@@ -83,6 +84,7 @@ export function runArPage(engine) {
       slot.user.add(pose);
       const annotations = buildAnnotations(annoData, model.maxDim);
       model.raw.add(annotations.group);
+      annotations.group.visible = core.showNotes;
       model.setSeeThrough(core.seeThrough);
       if (core.shapeMode) model.setMode('shape');
       Object.assign(slot, { model, meta, annotations, pose, loading: null });
@@ -115,6 +117,19 @@ export function runArPage(engine) {
     }
   }
 
+  // 起動に失敗してやり直すとき：前回の置き場所・モデルを捨てる
+  function clearStages() {
+    for (const s of core.slots) {
+      if (!s.model) continue;
+      s.annotations.dispose();
+      s.model.dispose();
+    }
+    core.stages.length = 0;
+    core.slots.length = 0;
+    core.active = core.current = null;
+    $('panel').hidden = true;
+  }
+
   /* ---------- 認識の開始・終了 ---------- */
 
   function select(slot) {
@@ -123,13 +138,24 @@ export function runArPage(engine) {
     core.current = slot;
     panel.setItem(slot.item, slot.meta);
     panel.setSiblings(slot.stage.slots.filter((s) => s.model).map((s) => s.item), slot.item);
-    panel.setLayers(slot.annotations.layers);
+    panel.setLayers(core.showNotes ? slot.annotations.layers : []);
     $('panel').hidden = false;
-    $('btn-reset').hidden = !movable(slot);
+    $('btn-notes').hidden = !slot.annotations.layers.length;   // 注記の無い資料では出さない
     if (pendingNote) {
       const entry = findEntry(slot.annotations, pendingNote);
-      if (entry) { pendingNote = null; slot.annotations.select(entry); panel.showSelection(entry); }
+      if (entry) { pendingNote = null; setNotes(true); slot.annotations.select(entry); panel.showSelection(entry); }
     }
+  }
+
+  // 注記を出す・消す。読み込んであるモデルすべてにかける。消したときは、選んでいた注記の説明も閉じる
+  function setNotes(on) {
+    core.showNotes = !!on;
+    for (const s of core.slots) if (s.annotations) s.annotations.group.visible = core.showNotes;
+    $('btn-notes').setAttribute('aria-pressed', String(core.showNotes));
+    const cur = core.current;
+    if (!cur || !cur.annotations) return;
+    if (!core.showNotes) { cur.annotations.select(null); panel.showSelection(null); }
+    panel.setLayers(core.showNotes ? cur.annotations.layers : []);  // 種類ごとの切り替えは、注記を出しているときだけ見せる
   }
 
   let flashTimer = null;
@@ -225,7 +251,7 @@ export function runArPage(engine) {
       const hit = pickModel(e.clientX, e.clientY, dom, camera, active.slots);
       if (hit && hit !== core.current) select(hit);
       const cur = core.current;
-      if (!cur || !cur.model) return;
+      if (!cur || !cur.model || !core.showNotes) return;   // 注記を出していないときは、注記を選ばない
       const entry = pickAnnotation(e.clientX, e.clientY, dom, camera, cur.annotations, cur.model);
       cur.annotations.select(entry);
       panel.showSelection(entry);
@@ -269,9 +295,9 @@ export function runArPage(engine) {
       $('btn-see').setAttribute('aria-pressed', String(core.seeThrough));
     });
     $('btn-rescan').addEventListener('click', () => (core.running ? engine.restart() : location.reload()));
-    $('btn-reset').addEventListener('click', () => {
-      if (!core.active) return;
-      for (const s of core.active.slots) { s.user.rotation.set(0, 0, 0); s.user.scale.setScalar(1); }
+    $('btn-notes').addEventListener('click', () => {
+      setNotes(!core.showNotes);
+      if (core.showNotes) flash('注記をたたくと説明が出ます', 3000);
     });
 
     const startBtn = $('btn-start');
@@ -286,6 +312,7 @@ export function runArPage(engine) {
           throw new Error('このブラウザではカメラを使えません。SafariかChromeで開いてください。');
         }
         stageEl.innerHTML = ''; // やり直しのときに前回の映像・描画面を残さない
+        clearStages();          // 　〃　前回作った図面の置き場所とモデルを捨てる（残すと二重にできる）
         await engine.start(core, preferredTarget);
         core.running = true;
         setupGestures(stageEl);
