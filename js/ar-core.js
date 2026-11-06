@@ -117,19 +117,6 @@ export function runArPage(engine) {
     }
   }
 
-  // 起動に失敗してやり直すとき：前回の置き場所・モデルを捨てる
-  function clearStages() {
-    for (const s of core.slots) {
-      if (!s.model) continue;
-      s.annotations.dispose();
-      s.model.dispose();
-    }
-    core.stages.length = 0;
-    core.slots.length = 0;
-    core.active = core.current = null;
-    $('panel').hidden = true;
-  }
-
   /* ---------- 認識の開始・終了 ---------- */
 
   function select(slot) {
@@ -312,7 +299,6 @@ export function runArPage(engine) {
           throw new Error('このブラウザではカメラを使えません。SafariかChromeで開いてください。');
         }
         stageEl.innerHTML = ''; // やり直しのときに前回の映像・描画面を残さない
-        clearStages();          // 　〃　前回作った図面の置き場所とモデルを捨てる（残すと二重にできる）
         await engine.start(core, preferredTarget);
         core.running = true;
         setupGestures(stageEl);
