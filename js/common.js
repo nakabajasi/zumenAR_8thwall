@@ -85,12 +85,13 @@ async function loadModel(item, onProgress) {
   gltf.scene.traverse((o) => {
     if (!o.isMesh) return;
     const src = o.material;
-    const photo = new THREE.MeshBasicMaterial({ map: src.map || null, color: src.map ? 0xffffff : src.color });
+    // 両面表示などの面の向きの設定は、元の材質のまま引き継ぐ（引き継がないと、裏から見える面が消える）
+    const photo = new THREE.MeshBasicMaterial({ map: src.map || null, color: src.map ? 0xffffff : src.color, side: src.side });
     // 表面に沿ったアノテーションの線がちらつかないよう、面をわずかに奥へずらす
     photo.polygonOffset = true; photo.polygonOffsetFactor = 1; photo.polygonOffsetUnits = 1;
     o.material = photo;
     src.dispose();
-    meshes.push({ mesh: o, photo, shape: null });
+    meshes.push({ mesh: o, photo, shape: null, side: src.side });
     const g = o.geometry;
     triangles += (g.index ? g.index.count : g.attributes.position.count) / 3;
   });
@@ -109,7 +110,7 @@ async function loadModel(item, onProgress) {
       if (next === 'shape') {
         if (!m.shape) {
           if (!m.mesh.geometry.attributes.normal) m.mesh.geometry.computeVertexNormals();
-          m.shape = new THREE.MeshStandardMaterial({ color: SHAPE_COLOR, roughness: 0.85, metalness: 0 });
+          m.shape = new THREE.MeshStandardMaterial({ color: SHAPE_COLOR, roughness: 0.85, metalness: 0, side: m.side });
           m.shape.polygonOffset = true; m.shape.polygonOffsetFactor = 1; m.shape.polygonOffsetUnits = 1;
           applySeeThrough(m.shape);
         }
