@@ -2,12 +2,12 @@
   "imagePath": "target8.jpg",
   "metadata": {
     "zumen": {
-      "srcWidth": 2576,
-      "srcHeight": 2240,
-      "padWidth": 2987,
-      "padHeight": 2240,
-      "padX": 205.5,
-      "padY": 0
+      "srcWidth": 3969,
+      "srcHeight": 2807,
+      "padWidth": 3969,
+      "padHeight": 2977,
+      "padX": 0,
+      "padY": 85
     }
   },
   "name": "zumen-1",
@@ -15,15 +15,15 @@
   "properties": {
     "top": 0,
     "left": 0,
-    "width": 2240,
-    "height": 2987,
+    "width": 2977,
+    "height": 3969,
     "isRotated": true,
-    "originalWidth": 2240,
-    "originalHeight": 2987
+    "originalWidth": 2977,
+    "originalHeight": 3969
   },
   "resources": {
     "luminanceImage": "target8.jpg"
   },
-  "created": 1794010252719,
-  "updated": 1794010252719
+  "created": 1793835304488,
+  "updated": 1793835304488
 }

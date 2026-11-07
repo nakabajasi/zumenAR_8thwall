@@ -1,20 +1,14 @@
-// AR表示（8th Wall 版。ar.html）。画面の共通部分は ar-core.js、ここは 8th Wall での認識だけ。
-//
-// 8th Wall は、カメラの映像とスマホの動きのセンサーで部屋そのものを追う（MindAR は図面だけを見ていた）。
-// 図面は「部屋のどこにあるか」を決めるのに使い、見つけたらモデルを部屋のその位置に置く。
-//   ・手ブレ：スマホの動きは部屋ごと追うので、モデルは机に置いたように止まって見える
-//   ・図面の位置は動かないはずなので、図面が写っているあいだの位置の測り直しは、ゆっくり平均して取り込む
-//     （1回ごとの測り直しの細かいばらつきでモデルを動かさない）。はっきり違う位置が続いたとき
-//     （図面を動かした・部屋の追跡がずれた）だけ、新しい位置へ移す
-//   ・図面が画面から外れても、モデルは部屋のその位置に残る（keepOnLost）。ただし外れているあいだに部屋の追跡が
-//     不安定になったら、残した位置は当てにならないので消す（limitedHide）
-//   ・置き直すときは一瞬で跳ばず、glideSec 秒かけて滑らかに移す
-//   ・図面の測り直しは、図面の四隅がすべて画面に入っているときだけ受け入れる。角が写らず長い線ばかりになると、
-//     8th Wall の測る図面の向き・位置が大きく狂うため（近づいたときにモデルが回る原因だった）。
-//     角が欠けた状態で最初に見つけた位置は仮のもの。四隅が写ったら、すぐそこへ置き直す
-//   ・8th Wall の「映像が真っ黒ならカメラを起動し直す」安全装置が、明るい映像でも誤って働き、そのたびに部屋の追跡が
-//     ずれていた。一瞬の真っ黒では起動し直させず、真っ黒が続いたとき（本当にカメラが止まったとき）だけ起動し直す。
-//     カメラが起動し直したら、保っていた位置は当てにならないので、モデルを消して図面を映し直したら置き直す
+// AR表示（8th Wall 版。ar.html）。
+// v22: 初期認識は図面全体が画面内にある場合だけ受け入れる。
+// いったん図面の四隅が見切れたら imageTargetData を [] に差し替え、
+// 8th Wall Engine 内の「図面画像ターゲットの認識・追跡」自体を停止する。
+// 以後は SLAM（カメラ画像の環境特徴点＋IMU）のカメラ姿勢だけで、同じワールド座標を描画する。
+// 自動で画像認識を再開しない。「探し直す」でのみターゲットを再登録する。
+// この切替は disableWorldTracking を変更しない。SLAM は常に有効。
+export const AR_BUILD_VERSION = 'v22.1';
+// HTMLが新しくてもJSが古いキャッシュなら「読込待ち」のままになる。
+const versionIndicator = document.getElementById('ar-build-version');
+if (versionIndicator) versionIndicator.textContent = `${AR_BUILD_VERSION} / AR JS 読込済`;
 import * as THREE from 'three';
 import { url, fetchJson, addLights, syncLineResolution } from './common.js';
 import { runArPage } from './ar-core.js';
@@ -31,7 +25,8 @@ export const AR8_DEFAULTS = {
   moveSec: 0.3,     // 「動いた」が続いたら新しい位置へ移すまでの時間（秒。一瞬の測り違いでは動かさない）
   glideSec: 0.4,    // 新しい位置へ移すとき、この秒数をかけて滑らかに移す（0＝一瞬で移す）
   limitedHide: 1,   // 1＝図面が外れているあいだに部屋の追跡が不安定になったら、モデルを消す（図面を映し直すと出る）／0＝残す
-  cornerEdge: 0.02, // 図面の四隅が「画面に入っている」とみなすのは、画面の縁からこの割合（画面の幅・高さの半分に対して）より内側
+  cornerEdge: 0.02, // 四隅の投影が画面内と判定する余裕
+  lockEdge: 0.08,   // SLAM専用へ切替える境界（NDC。画面端の約4%手前で画像認識を停止）
   stallSec: 3,      // 映像の真っ黒がこの秒数続いたら、本当にカメラが止まったとみなして起動し直す（0＝8th Wall の安全装置のまま）
   pixelRatio: 2,    // 描画の細かさ（画面の画素比の上限）
   turn: 0,          // 図面の向きの補正（度。0・90・180・270）。?debug=1 で出る赤い枠が紙の縁と合わないときだけ使う
@@ -44,7 +39,7 @@ const LEFT_NOTE = '図面から外れても、モデルはその場所に残り�
 const DOUBT_HINT = 'モデルの位置を保てなくなりました。図面をもう一度カメラに映してください';
 const DOUBT_MS = 500;    // 部屋の追跡の不安定がこの時間続いたら消す（一瞬の乱れでは消さない）
 const RESTART_HINT = 'カメラが止まったので、モデルを消しました。図面をもう一度カメラに映してください';
-const WHOLE_NOTE = '図面全体をいったん画面に入れると、位置が正確に合います';
+const WHOLE_NOTE = '図面全体の四隅を映して、最初の位置を合わせてください';
 
 const query = new URLSearchParams(location.search);
 const debug = query.has('debug');
@@ -57,6 +52,12 @@ let motionAsk = null;
 let status = { status: '', reason: '' };
 let toldLeft = false;
 const byName = new Map();  // 8th Wall の画像ターゲット名 → 図面の置き場所
+let allTargetData = [];     // 画像認識を再開するときに登録し直すターゲットデータ
+let scanMode = 'SCANNING'; // SCANNING（画像認識＋SLAM） / SLAM_ONLY（SLAMのみ）
+let scanEpoch = 0;         // 画像認識停止を非同期で行うときの世代（再開時の競合防止）
+let targetSwitches = 0;
+let targetSwitchError = '';
+
 
 const engine = {
   scanHint: SCAN_HINT,
@@ -65,9 +66,9 @@ const engine = {
   start,
   restart,
   view: () => ({ dom: canvas, camera: xr.camera }),
-  isTracking: (st) => st.anchor.seen,
+  isTracking: (st) => st.anchor.seen || (scanMode === 'SLAM_ONLY' && st.anchor.has && !st.anchor.doubt),
   isShowing: (st) => st.anchor.has && !st.anchor.doubt,
-  handle: { inject: (detail, fresh = true) => onImage(detail, fresh), lose: (name) => onImageLost({ name }), setStatus: (d) => onStatus(d), get stall() { return { blocked: stallBlocked, restarted: stallRestarted, cameraRestarts, blackSince }; }, cornersFor: (d, i = 0) => { const a = core.stages[i].anchor; return cornersInView(new THREE.Vector3(d.position.x, d.position.y, d.position.z), new THREE.Quaternion(d.rotation.x, d.rotation.y, d.rotation.z, d.rotation.w).normalize(), d.scale, a.inner, a.aspect); }, get XR8() { return XR8; }, get xr() { return xr; }, settings, get status() { return status; }, get events() { return events; }, get lastCpu() { return lastCpu; } },
+  handle: { inject: (detail, fresh = true) => onImage(detail, fresh), lose: (name) => onImageLost({ name }), setStatus: (d) => onStatus(d), get stall() { return { blocked: stallBlocked, restarted: stallRestarted, cameraRestarts, blackSince }; }, cornersFor: (d, i = 0) => { const a = core.stages[i].anchor; return cornersInView(new THREE.Vector3(d.position.x, d.position.y, d.position.z), new THREE.Quaternion(d.rotation.x, d.rotation.y, d.rotation.z, d.rotation.w).normalize(), d.scale, a.inner, a.aspect); }, get XR8() { return XR8; }, get xr() { return xr; }, settings, get status() { return status; }, get events() { return events; }, get lastCpu() { return lastCpu; }, get scanMode() { return scanMode; }, get targetSwitches() { return targetSwitches; } },
 };
 
 /* ---------- 準備 ---------- */
@@ -125,7 +126,8 @@ function makeAnchor(data) {
     .multiply(new THREE.Matrix4().makeScale(unit, unit, unit));
   return {
     has: false, seen: false,                 // 位置を決めたか／いま写っているか
-    firm: false,                             // 四隅が写った状態で測った位置か。false は角が欠けた状態で見つけた仮の位置
+    firm: false,                             // 四隅を画面に入れた状態で初期位置を決めたか
+    locked: false,                           // 本当に画像ターゲットを解除して SLAM のみで追跡しているか
     doubt: false,                            // 図面が外れているあいだに部屋の追跡が不安定になり、位置が当てにならない（消している）
     badSince: 0,
     p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1,     // 図面の位置（部屋の中）
@@ -137,7 +139,7 @@ function makeAnchor(data) {
   };
 }
 
-// 8th Wall が図面の位置を測り直すたびに呼ぶ
+// 画像認識が有効で、四隅を映したときだけ図面の姿勢を更新する
 function measure(st, detail, fresh) {
   const a = st.anchor;
   const now = performance.now();
@@ -151,6 +153,8 @@ function measure(st, detail, fresh) {
   // 角が写らず長い線ばかりになると、8th Wall の測る向き・位置が大きく狂う（線に沿ったずれと回りが決まらない）
   a.inView = cornersInView(_p, _q, s, a.inner, a.aspect);
   const whole = a.inView === 4;
+  // 初期アンカーを部分認識から生成しない。四隅を画面内に収めてから認識する。
+  if (!a.has && !whole) { a.cut += 1; return; }
   // 見失っていた時間が長いと、部屋の追跡のずれがたまっているかもしれないので、見つけ直したら新しい位置をそのまま使う
   // （ただし四隅が写っていないときは、いまの位置を保つ）
   const longGone = fresh && now - a.lastAt > 1500 && whole;
@@ -190,12 +194,12 @@ function measure(st, detail, fresh) {
 const _c = new THREE.Vector3();
 const _cs = new THREE.Vector3();
 const _cm = new THREE.Matrix4();
-function cornersInView(p, q, s, inner, aspect) {
-  if (!xr) return 4;
+function cornersInView(p, q, s, inner, aspect, edge = settings.cornerEdge) {
+  if (!xr) return 0;
   const cam = xr.camera;
   cam.updateMatrixWorld();
   _cm.compose(p, q, _cs.setScalar(s)).multiply(inner);
-  const lim = 1 - settings.cornerEdge;
+  const lim = 1 - edge;
   let n = 0;
   for (const [x, y] of [[-0.5, -1], [0.5, -1], [0.5, 1], [-0.5, 1]]) {
     _c.set(x, (y * aspect) / 2, 0).applyMatrix4(_cm).project(cam);
@@ -242,9 +246,55 @@ function placeRoot(st, now) {
   st.root.matrixWorldNeedsUpdate = true;
 }
 
-// 図面が画面から外れているあいだは、部屋の追跡だけでモデルの位置を保っている。その追跡が不安定になったら
-// （速く動かしすぎた・手がかりの少ない所を写した など）、保っている位置は当てにならないので消す。
-// 図面が写っているあいだは消さない（図面の測り直しで、モデルは図面の上に合う）
+// 四隅が揃わなくなる前に、保存済みアンカーの投影から切り替えを判定する。
+// 認識が返してきた最新の姿勢を利用しない。誤姿勢を根拠に「四隅が見える」と判断しないため。
+function lockIfCornerLeaves(st) {
+  if (!settings.slam || scanMode !== 'SCANNING' || !st.anchor.has || !st.anchor.firm) return false;
+  const a = st.anchor;
+  a.inView = cornersInView(a.p, a.q, a.s, a.inner, a.aspect, settings.lockEdge);
+  if (a.inView === 4) return false;
+  switchToSlamOnly(st, '四隅が画面端に近づいた');
+  return true;
+}
+
+// imageTargetData=[] は「イベントを無視」ではなく、8th Wall が処理する画像ターゲットを空にする。
+// SLAM とカメラは起動したまま。画像認識の再開は手動の「探し直す」のときだけ。
+function switchToSlamOnly(st, reason) {
+  if (!settings.slam || scanMode !== 'SCANNING' || !st.anchor.has) return;
+  const a = st.anchor;
+  // すでに移動補間中だった場合も、切り替えた瞬間に見えていた位置で止める。
+  if (a.gAt) {
+    placeRoot(st, performance.now());
+    a.p.copy(a.dp); a.q.copy(a.dq); a.s = a.ds;
+    a.gAt = 0;
+  }
+  scanMode = 'SLAM_ONLY';
+  a.locked = true;
+  a.seen = false;
+  a.bigSince = 0;
+  const epoch = ++scanEpoch;
+  note(`${reason}: 画像ターゲット停止を要求`);
+  core.$('recover').hidden = false;
+  core.$('btn-rescan').textContent = '図面を再認識';
+  core.flash('画像認識を終了し、SLAM追跡に切り替えました', 2200);
+  // イベントコールバック内で8th Wallの設定を変更しない。次のタスクで画像ターゲット登録を解除。
+  // モードは同期的に変えておき、停止待ちに届いた imageupdated/imagelost も拒否する。
+  setTimeout(() => {
+    if (epoch !== scanEpoch || scanMode !== 'SLAM_ONLY') return;
+    try {
+      XR8.XrController.configure({ imageTargetData: [] });
+      targetSwitches += 1;
+      targetSwitchError = '';
+      note('画像ターゲットを解除（SLAMのみ継続）');
+    } catch (err) {
+      targetSwitchError = String(err);
+      console.error('画像ターゲット認識を停止できませんでした', err);
+      core.showHint('画像認識の停止に失敗しました。ページを再読み込みしてください');
+    }
+  }, 0);
+}
+
+// 画像認識が停止している間も SLAM による追跡状態は監視する。
 function watchRoom(st, now) {
   const a = st.anchor;
   if (!settings.limitedHide || !a.has || a.seen || a.doubt) { a.badSince = 0; return; }
@@ -354,8 +404,9 @@ function appModule(datas, started, failed, mine) {
       checkStall(now);
       for (const st of core.stages) {
         const a = st.anchor;
+        if (scanMode === 'SCANNING') lockIfCornerLeaves(st);
         watchRoom(st, now);
-        const show = st === core.active && a.has && !a.doubt && (a.seen || settings.keepOnLost) && st.slots.some((s) => s.model);
+        const show = st === core.active && a.has && !a.doubt && (a.seen || settings.keepOnLost || a.locked) && st.slots.some((s) => s.model);
         st.root.visible = show;
         if (show) placeRoot(st, now);
       }
@@ -387,24 +438,43 @@ function appModule(datas, started, failed, mine) {
 
 let wholeToldAt = -1e9;
 function onImage(detail, fresh) {
+  if (scanMode !== 'SCANNING') return;  // 停止の完了前に残っていたイベントも使わない
   const st = byName.get(detail.name);
   if (!st) return;
-  const wasSeen = st.anchor.seen;
-  const wasFirm = st.anchor.firm;
-  measure(st, detail, fresh);
-  st.anchor.seen = true;
-  if (fresh || !wasSeen) core.onFound(st);
-  // 角が欠けた状態で見つけた（仮の位置）ときは、図面全体を一度映すよう促す
-  if ((fresh || !wasSeen) && !st.anchor.firm && core.active === st && performance.now() - wholeToldAt > 10000) {
-    wholeToldAt = performance.now();
-    core.flash(WHOLE_NOTE, 3000);
+  const a = st.anchor;
+  // 既存アンカーを使って四隅を評価。誤ったimageupdatedの姿勢を参照しない。
+  if (lockIfCornerLeaves(st)) return;
+  if (!detail.position || !detail.rotation || !Number.isFinite(detail.scale) || detail.scale <= 0) return;
+  // 最新の推定姿勢でも四隅が見えない場合は、位置を書き換えずに直接SLAMへ移る。
+  const measuredCorners = cornersInView(
+    _p.set(detail.position.x, detail.position.y, detail.position.z),
+    _q.set(detail.rotation.x, detail.rotation.y, detail.rotation.z, detail.rotation.w).normalize(),
+    detail.scale, a.inner, a.aspect, settings.cornerEdge);
+  if (measuredCorners < 4) {
+    a.cut += 1;
+    if (a.has) switchToSlamOnly(st, '画像認識で四隅が見切れた');
+    else if (performance.now() - wholeToldAt > 10000) {
+      wholeToldAt = performance.now();
+      core.flash(WHOLE_NOTE, 3000);
+    }
+    return;
   }
-  else if (!wasFirm && st.anchor.firm && debug) note('四隅が写ったので置き直した');
+  const wasSeen = a.seen;
+  measure(st, detail, fresh);
+  if (!a.has) return;
+  a.seen = true;
+  if (fresh || !wasSeen) core.onFound(st);
 }
 
 function onImageLost(detail) {
+  if (scanMode !== 'SCANNING') return;
   const st = byName.get(detail.name);
   if (!st) return;
+  // 部分認識に戻ってしまう前に画像認識自体を終了する。
+  if (st.anchor.has && st.anchor.firm && settings.slam) {
+    switchToSlamOnly(st, '図面の画像追跡が失われた');
+    return;
+  }
   st.anchor.seen = false;
   if (settings.keepOnLost && st.anchor.has) {
     core.onLost(st, '', false);
@@ -443,6 +513,9 @@ async function start(c) {
     running8 = false;
   }
   byName.clear();
+  scanMode = 'SCANNING';
+  ++scanEpoch;
+  targetSwitchError = '';
   xr = null;
   const { catalog } = core;
   // 設定：既定値 ← 台帳の tracking8 ← URL（例 ar.html?debug=1&settleSec=2）
@@ -458,6 +531,7 @@ async function start(c) {
     throw new Error('動きのセンサーの使用が許可されませんでした。もう一度押して「許可」を選んでください（iPhone は 設定 > Safari > モーションと画面の向きのアクセス も確かめてください）。');
   }
   const datas = await loadTargets(catalog);
+  allTargetData = datas;
 
   canvas = document.createElement('canvas');
   canvas.id = 'xr-canvas';
@@ -496,11 +570,27 @@ async function start(c) {
   });
 }
 
-// 「探し直す」：部屋の座標を作り直し、図面の位置を決め直す
+// 「図面を再認識」：画像ターゲットを再登録し、位置合わせを最初からやり直す。
 function restart() {
+  ++scanEpoch;  // 停止処理がまだキューに残っていても、再開後に動かさない
+  scanMode = 'SCANNING';
+  targetSwitchError = '';
   core.$('recover').hidden = true;
-  for (const st of core.stages) Object.assign(st.anchor, { has: false, seen: false, firm: false, doubt: false, badSince: 0, gAt: 0 });
-  try { XR8.XrController.recenter(); } catch (err) { console.warn(err); }
+  core.$('btn-rescan').textContent = '探し直す';
+  for (const st of core.stages) Object.assign(st.anchor, {
+    has: false, seen: false, firm: false, locked: false,
+    doubt: false, badSince: 0, gAt: 0, lastAt: 0, bigSince: 0,
+  });
+  try {
+    XR8.XrController.configure({ imageTargetData: allTargetData });
+    note('画像ターゲットを再登録');
+    XR8.XrController.recenter();
+  } catch (err) {
+    targetSwitchError = String(err);
+    console.error(err);
+    core.showHint('画像認識の再開に失敗しました。ページを再読み込みしてください');
+    return;
+  }
   core.showHint(SCAN_HINT);
 }
 
@@ -524,8 +614,10 @@ function updateDebug() {
   const st = core.active || core.stages[0];
   const a = st && st.anchor;
   debugBox.textContent = [
+    `バージョン ${AR_BUILD_VERSION} / AR JS 読込済`,
     `方式 8th Wall（${settings.slam ? '部屋ごと追う' : '図面だけ'}）  描画 ${fps.toFixed(0)}回/秒`,
     `部屋の追跡 ${status.status || '-'} ${status.reason || ''}`,
+    `画像ターゲット ${scanMode === 'SCANNING' ? '認識ON（四隅の間）' : '認識OFF（SLAM専用）'}  停止成功 ${targetSwitches} ${targetSwitchError ? '※切替エラー: ' + targetSwitchError : ''}`,
     a ? `図面 ${a.seen ? '写っている' : a.has ? '外れている（位置は保持）' : '未発見'}  測り直し ${a.rate.toFixed(0)}回/秒` : '図面 -',
     a ? `直近の差 ${(a.lastDiff * 100).toFixed(2)}%  ${a.lastDeg.toFixed(2)}°  移した ${a.snaps}  無視 ${a.skipped}` : '',
     a ? `四隅 ${a.inView}/4 画面内  角が見えず捨てた ${a.cut}  距離÷長辺 ${a.ratio.toFixed(2)}` : '',
