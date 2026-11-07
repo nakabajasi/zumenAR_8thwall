@@ -9,7 +9,9 @@
 //   ・図面が画面から外れても、モデルは部屋のその位置に残る（keepOnLost）。ただし外れているあいだに部屋の追跡が
 //     不安定になったら、残した位置は当てにならないので消す（limitedHide）
 //   ・置き直すときは一瞬で跳ばず、glideSec 秒かけて滑らかに移す
-//   ・図面の測り直しは、図面の四隅がすべて画面に入っているときだけ受け入れる。角が写らず長い線ばかりになると、
+//   ・poseLock=1（既定）では初期位置を安定確認したら固定し、以後の画像認識座標はすべて無視する。
+//     従来の継続補正方式は poseLock=0 で比較できる。
+//   ・（旧方式では）図面の測り直しは、図面の四隅がすべて画面に入っているときだけ受け入れる。角が写らず長い線ばかりになると、
 //     8th Wall の測る図面の向き・位置が大きく狂うため（近づいたときにモデルが回る原因だった）。
 //     角が欠けた状態で最初に見つけた位置は仮のもの。四隅が写ったら、すぐそこへ置き直す
 //   ・8th Wall の「映像が真っ黒ならカメラを起動し直す」安全装置が、明るい映像でも誤って働き、そのたびに部屋の追跡が
@@ -25,6 +27,13 @@ window.THREE = { ...THREE };
 export const AR8_DEFAULTS = {
   slam: 1,          // 1＝部屋ごと追う（スマホのみ）／0＝図面だけで追う（パソコンでの確認用。手ブレは止まらない）
   keepOnLost: 1,    // 1＝図面が画面から外れても、モデルを部屋のその位置に残す／0＝消す
+  poseLock: 1,      // 1＝初期認識を安定確認したら位置・回転・スケールを固定し、画像認識による再補正を禁止（SLAMを使う場合）／0＝従来方式
+  confirmSec: 0.6,  // 初期姿勢が安定している必要がある秒数
+  confirmFrames: 6, // 初期姿勢を確定するまでに必要な連続測定回数
+  confirmPosTol: 0.05, // 初期候補の位置の許容差（ターゲットのスケールの比率）
+  confirmDegTol: 6,    // 初期候補の角度の許容差（度）
+  confirmScaleTol: 0.12, // 初期候補のスケールの許容差（割合）
+  absoluteWorld: 0, // 診断用：1＝8th Wall の座標系を absolute に（通常は0のまま）
   settleSec: 1.0,   // 図面が写っているあいだ、位置の測り直しを取り込む速さ（秒。大きいほどゆっくり平均する）
   moveTol: 0.03,    // これ以上違う位置（図面の長辺に対する割合）を「図面が動いた」とみなす
   moveTolDeg: 4,    // これ以上違う向き（度）を「図面が動いた」とみなす
@@ -126,6 +135,11 @@ function makeAnchor(data) {
   return {
     has: false, seen: false,                 // 位置を決めたか／いま写っているか
     firm: false,                             // 四隅が写った状態で測った位置か。false は角が欠けた状態で見つけた仮の位置
+    locked: false,                           // poseLock 時：初期姿勢が確定し、以後 imagefound/imageupdated の姿勢を採用しない
+    candidate: null,                         // 初期認識の安定確認に使う一時的な候補
+    ignoredPose: 0,                          // 固定後に捨てた画像認識姿勢の数
+    lockedAt: 0,
+    rawScale: 0,
     doubt: false,                            // 図面が外れているあいだに部屋の追跡が不安定になり、位置が当てにならない（消している）
     badSince: 0,
     p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1,     // 図面の位置（部屋の中）
@@ -144,13 +158,57 @@ function measure(st, detail, fresh) {
   _p.set(detail.position.x, detail.position.y, detail.position.z);
   _q.set(detail.rotation.x, detail.rotation.y, detail.rotation.z, detail.rotation.w).normalize();
   const s = detail.scale;
+  if (!Number.isFinite(s) || s <= 0 || !Number.isFinite(_p.x) || !Number.isFinite(_p.y) || !Number.isFinite(_p.z)
+      || !Number.isFinite(_q.x) || !Number.isFinite(_q.y) || !Number.isFinite(_q.z) || !Number.isFinite(_q.w)) {
+    a.skipped += 1;
+    return;
+  }
+  a.rawScale = s;
   a.updates += 1; a.rateCount += 1;
   if (now - a.rateAt > 1000) { a.rate = (a.rateCount * 1000) / (now - a.rateAt || 1); a.rateCount = 0; a.rateAt = now; }
   a.ratio = xr ? xr.camera.position.distanceTo(_p) / Math.max(s, 1e-6) : 99;   // 確認用の表示だけに使う
   // 信用してよい測り直しか：8th Wall が測った位置で、図面の四隅がすべて画面に入っているか。
   // 角が写らず長い線ばかりになると、8th Wall の測る向き・位置が大きく狂う（線に沿ったずれと回りが決まらない）
+  // SLAM 固定モード：一度アンカーを確定したら、その後の画像認識結果は一切 root の姿勢に反映しない。
+  // 重要：8th Wall 自体の画像認識イベントは継続するが、このアプリでは姿勢を捨てる。
+  if (settings.slam && settings.poseLock && a.locked) {
+    a.ignoredPose += 1;
+    a.lastDiff = _p.distanceTo(a.p) / Math.max(a.s, 1e-6);
+    a.lastDeg = THREE.MathUtils.radToDeg(_q.angleTo(a.q));
+    return;
+  }
   a.inView = cornersInView(_p, _q, s, a.inner, a.aspect);
   const whole = a.inView === 4;
+  if (settings.slam && settings.poseLock) {
+    // 未確定：四隅が画面に収まり、かつ位置・角度・スケールが一定時間安定したときだけ固定する。
+    // 四隅の判定は推定姿勢を投影したものなので完全な検証ではない。初期認識は必ず図面全体を映す。
+    if (!whole) { a.cut += 1; a.candidate = null; return; }
+    let c = a.candidate;
+    const consistent = c &&
+      _p.distanceTo(c.p) / Math.max(c.s, 1e-6) <= settings.confirmPosTol &&
+      THREE.MathUtils.radToDeg(_q.angleTo(c.q)) <= settings.confirmDegTol &&
+      Math.abs(s / Math.max(c.s, 1e-6) - 1) <= settings.confirmScaleTol;
+    if (!consistent) {
+      c = { p: _p.clone(), q: _q.clone(), s, since: now, frames: 1 };
+      a.candidate = c;
+      a.skipped += 1;
+      return;
+    }
+    // 測定値を平均化。候補の中心に対して次の姿勢を比較する。
+    const k = 1 / Math.min(c.frames + 1, 20);
+    c.p.lerp(_p, k);
+    c.q.slerp(_q, k);
+    c.s += (s - c.s) * k;
+    c.frames += 1;
+    if (now - c.since < settings.confirmSec * 1000 || c.frames < settings.confirmFrames) return;
+    moveTo(st, c.p, c.q, c.s, now);
+    a.has = true; a.firm = true; a.locked = true; a.doubt = false;
+    a.lockedAt = now; a.lastAt = now; a.bigSince = 0; a.candidate = null;
+    note('初期位置を確定。以後はSLAMのみ（画像認識の座標更新を無視）');
+    core.flash('位置を確定しました。近づいても画像認識では置き直しません', 3000);
+    return;
+  }
+  // ここから下は従来方式（poseLock=0 または slam=0）。
   // 見失っていた時間が長いと、部屋の追跡のずれがたまっているかもしれないので、見つけ直したら新しい位置をそのまま使う
   // （ただし四隅が写っていないときは、いまの位置を保つ）
   const longGone = fresh && now - a.lastAt > 1500 && whole;
@@ -247,13 +305,16 @@ function placeRoot(st, now) {
 // 図面が写っているあいだは消さない（図面の測り直しで、モデルは図面の上に合う）
 function watchRoom(st, now) {
   const a = st.anchor;
-  if (!settings.limitedHide || !a.has || a.seen || a.doubt) { a.badSince = 0; return; }
+  // 固定モードでは画像を認識できていても、SLAM が不安定なら保持したアンカーを信用しない。
+  if (!settings.limitedHide || !a.has || a.doubt || (!(settings.slam && settings.poseLock && a.locked) && a.seen)) {
+    a.badSince = 0; return;
+  }
   const bad = status.status === 'LIMITED' || status.status === 'NOT_AVAILABLE';
   if (!bad) { a.badSince = 0; return; }
   if (!a.badSince) a.badSince = now;
   if (now - a.badSince < DOUBT_MS) return;
   a.doubt = true; a.badSince = 0; a.gAt = 0; a.doubts += 1;
-  if (core.active === st) core.onLost(st, DOUBT_HINT, false);
+  if (core.active === st) core.onLost(st, DOUBT_HINT, true);
 }
 
 /* ---------- カメラの誤った起動し直しを止める ---------- */
@@ -295,7 +356,7 @@ function onCameraRestart() {
     a.seen = false;
     if (!a.has || a.doubt) continue;
     a.doubt = true; a.gAt = 0; a.restarts += 1;
-    if (core.active === st) core.onLost(st, RESTART_HINT, false);
+    if (core.active === st) core.onLost(st, RESTART_HINT, true);
   }
 }
 
@@ -355,6 +416,8 @@ function appModule(datas, started, failed, mine) {
       for (const st of core.stages) {
         const a = st.anchor;
         watchRoom(st, now);
+        // 固定済みの四隅表示は、誤った再認識姿勢ではなく固定アンカーを投影して数える。
+        if (a.locked) a.inView = cornersInView(a.p, a.q, a.s, a.inner, a.aspect);
         const show = st === core.active && a.has && !a.doubt && (a.seen || settings.keepOnLost) && st.slots.some((s) => s.model);
         st.root.visible = show;
         if (show) placeRoot(st, now);
@@ -391,9 +454,12 @@ function onImage(detail, fresh) {
   if (!st) return;
   const wasSeen = st.anchor.seen;
   const wasFirm = st.anchor.firm;
+  const wasLocked = st.anchor.locked;
   measure(st, detail, fresh);
   st.anchor.seen = true;
-  if (fresh || !wasSeen) core.onFound(st);
+  // SLAM ロスト等で表示を止めた後は、画像再認識だけで解除しない。手動の「探し直す」が必要。
+  if (!st.anchor.doubt && (fresh || !wasSeen)) core.onFound(st);
+  if (!wasLocked && st.anchor.locked) note('画像認識の座標を固定');
   // 角が欠けた状態で見つけた（仮の位置）ときは、図面全体を一度映すよう促す
   if ((fresh || !wasSeen) && !st.anchor.firm && core.active === st && performance.now() - wholeToldAt > 10000) {
     wholeToldAt = performance.now();
@@ -406,6 +472,7 @@ function onImageLost(detail) {
   const st = byName.get(detail.name);
   if (!st) return;
   st.anchor.seen = false;
+  if (!st.anchor.locked) st.anchor.candidate = null; // 一時的な候補は見失ったら破棄
   if (settings.keepOnLost && st.anchor.has) {
     core.onLost(st, '', false);
     if (!toldLeft && core.active === st) { toldLeft = true; core.flash(LEFT_NOTE, 3000); }
@@ -478,7 +545,7 @@ async function start(c) {
       core.showHint(err.message);
     };
     timer = setTimeout(() => failed(new Error('カメラの準備に時間がかかっています。ページを読み込み直してください。')), 30000);
-    XR8.XrController.configure({ imageTargetData: datas, disableWorldTracking: !settings.slam, scale: 'responsive' });
+    XR8.XrController.configure({ imageTargetData: datas, disableWorldTracking: !settings.slam, scale: settings.absoluteWorld ? 'absolute' : 'responsive' });
     XR8.addCameraPipelineModules([
       XR8.GlTextureRenderer.pipelineModule(),   // カメラの映像を描く
       XR8.Threejs.pipelineModule(),             // three.js の場面とカメラを、スマホの動きに合わせる
@@ -499,7 +566,10 @@ async function start(c) {
 // 「探し直す」：部屋の座標を作り直し、図面の位置を決め直す
 function restart() {
   core.$('recover').hidden = true;
-  for (const st of core.stages) Object.assign(st.anchor, { has: false, seen: false, firm: false, doubt: false, badSince: 0, gAt: 0 });
+  for (const st of core.stages) Object.assign(st.anchor, {
+    has: false, seen: false, firm: false, doubt: false, badSince: 0, gAt: 0,
+    locked: false, candidate: null, lockedAt: 0, ignoredPose: 0, lastAt: 0,
+  });
   try { XR8.XrController.recenter(); } catch (err) { console.warn(err); }
   core.showHint(SCAN_HINT);
 }
@@ -527,8 +597,10 @@ function updateDebug() {
     `方式 8th Wall（${settings.slam ? '部屋ごと追う' : '図面だけ'}）  描画 ${fps.toFixed(0)}回/秒`,
     `部屋の追跡 ${status.status || '-'} ${status.reason || ''}`,
     a ? `図面 ${a.seen ? '写っている' : a.has ? '外れている（位置は保持）' : '未発見'}  測り直し ${a.rate.toFixed(0)}回/秒` : '図面 -',
+    a ? `姿勢 ${settings.slam && settings.poseLock ? a.locked ? '固定済み（SLAM専用）' : `初期認識待ち ${a.candidate ? `${a.candidate.frames}回` : '四隅未確認'}` : '従来の連続補正'}  固定後の認識更新を無視 ${a.ignoredPose}回` : '',
+    a && a.locked ? `固定スケール ${a.s.toFixed(5)}  認識の最新スケール ${a.rawScale.toFixed(5)}  カメラ座標 ${xr.camera.position.toArray().map(v => v.toFixed(2)).join(',')}` : '', 
     a ? `直近の差 ${(a.lastDiff * 100).toFixed(2)}%  ${a.lastDeg.toFixed(2)}°  移した ${a.snaps}  無視 ${a.skipped}` : '',
-    a ? `四隅 ${a.inView}/4 画面内  角が見えず捨てた ${a.cut}  距離÷長辺 ${a.ratio.toFixed(2)}` : '',
+    a ? `四隅 ${a.inView}/4（${a.locked ? '固定座標から投影' : '認識姿勢から投影'}）  角が見えず捨てた ${a.cut}  距離÷長辺 ${a.ratio.toFixed(2)}` : '',
     a ? `位置 ${!a.has ? '-' : a.doubt ? '当てにならないので消している' : a.firm ? '確定' : '仮（角が欠けた状態で見つけた）'}  滑らかに移した ${a.glides}  追跡の乱れで消した ${a.doubts}` : '',
     `カメラの起動し直し 止めた ${stallBlocked}  起きた ${cameraRestarts}（うち真っ黒が続いた ${stallRestarted}）`,
     `画素 ${canvas ? `${canvas.width}×${canvas.height}` : '-'}`,
