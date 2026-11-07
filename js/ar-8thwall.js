@@ -5,10 +5,8 @@
 // 以後は SLAM（カメラ画像の環境特徴点＋IMU）のカメラ姿勢だけで、同じワールド座標を描画する。
 // 自動で画像認識を再開しない。「探し直す」でのみターゲットを再登録する。
 // この切替は disableWorldTracking を変更しない。SLAM は常に有効。
-export const AR_BUILD_VERSION = 'v22.1';
+export const AR_BUILD_VERSION = 'v22.2';
 // HTMLが新しくてもJSが古いキャッシュなら「読込待ち」のままになる。
-const versionIndicator = document.getElementById('ar-build-version');
-if (versionIndicator) versionIndicator.textContent = `${AR_BUILD_VERSION} / AR JS 読込済`;
 import * as THREE from 'three';
 import { url, fetchJson, addLights, syncLineResolution } from './common.js';
 import { runArPage } from './ar-core.js';
@@ -42,6 +40,11 @@ const RESTART_HINT = 'カメラが止まったので、モデルを消しまし�
 const WHOLE_NOTE = '図面全体の四隅を映して、最初の位置を合わせてください';
 
 const query = new URLSearchParams(location.search);
+// 8th Wall の座標スケール比較用（診断のみ。URLで二択）。
+// 既定の responsive と、実寸単位の absolute を他条件同一で比較する。
+const worldScaleMode = query.get('scaleMode') === 'absolute' ? 'absolute' : 'responsive';
+const versionIndicator = document.getElementById('ar-build-version');
+if (versionIndicator) versionIndicator.textContent = `${AR_BUILD_VERSION} / ${worldScaleMode} / AR JS 読込済`;
 const debug = query.has('debug');
 let settings = { ...AR8_DEFAULTS };
 let core = null;
@@ -552,7 +555,7 @@ async function start(c) {
       core.showHint(err.message);
     };
     timer = setTimeout(() => failed(new Error('カメラの準備に時間がかかっています。ページを読み込み直してください。')), 30000);
-    XR8.XrController.configure({ imageTargetData: datas, disableWorldTracking: !settings.slam, scale: 'responsive' });
+    XR8.XrController.configure({ imageTargetData: datas, disableWorldTracking: !settings.slam, scale: worldScaleMode });
     XR8.addCameraPipelineModules([
       XR8.GlTextureRenderer.pipelineModule(),   // カメラの映像を描く
       XR8.Threejs.pipelineModule(),             // three.js の場面とカメラを、スマホの動きに合わせる
@@ -615,8 +618,10 @@ function updateDebug() {
   const a = st && st.anchor;
   debugBox.textContent = [
     `バージョン ${AR_BUILD_VERSION} / AR JS 読込済`,
-    `方式 8th Wall（${settings.slam ? '部屋ごと追う' : '図面だけ'}）  描画 ${fps.toFixed(0)}回/秒`,
+    `方式 8th Wall（${settings.slam ? '部屋ごと追う' : '図面だけ'}）  スケール ${worldScaleMode}  描画 ${fps.toFixed(0)}回/秒`,
     `部屋の追跡 ${status.status || '-'} ${status.reason || ''}`,
+    xr ? `カメラ位置 X ${xr.camera.position.x.toFixed(3)} Y ${xr.camera.position.y.toFixed(3)} Z ${xr.camera.position.z.toFixed(3)}（ワールド単位）` : 'カメラ位置 -',
+    a && a.has ? `固定図面位置 X ${a.p.x.toFixed(3)} Y ${a.p.y.toFixed(3)} Z ${a.p.z.toFixed(3)} / scale ${a.s.toFixed(4)}` : '固定図面位置 -',
     `画像ターゲット ${scanMode === 'SCANNING' ? '認識ON（四隅の間）' : '認識OFF（SLAM専用）'}  停止成功 ${targetSwitches} ${targetSwitchError ? '※切替エラー: ' + targetSwitchError : ''}`,
     a ? `図面 ${a.seen ? '写っている' : a.has ? '外れている（位置は保持）' : '未発見'}  測り直し ${a.rate.toFixed(0)}回/秒` : '図面 -',
     a ? `直近の差 ${(a.lastDiff * 100).toFixed(2)}%  ${a.lastDeg.toFixed(2)}°  移した ${a.snaps}  無視 ${a.skipped}` : '',
